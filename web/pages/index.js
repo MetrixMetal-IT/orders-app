@@ -8,8 +8,7 @@ function getApiBase() {
   }
 
   if (typeof window !== "undefined") {
-    const { protocol, hostname } = window.location;
-    return `${protocol}//${hostname}:40098`;
+    return "/api";
   }
 
   return "http://localhost:8000";
