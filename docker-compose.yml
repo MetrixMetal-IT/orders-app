@@ -48,7 +48,7 @@ services:
     ports:
       - "40099:3000"
     environment:
-      NEXT_PUBLIC_API_URL: "http://srv39.mikr.us:40098"
+      NEXT_PUBLIC_API_URL: "https://orders_api.metrixmetal.work"
     depends_on:
       - api
     restart: unless-stopped
