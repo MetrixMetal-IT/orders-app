@@ -8,7 +8,7 @@ function getApiBase() {
   }
 
   if (typeof window !== "undefined") {
-    return "/api";
+    return "";
   }
 
   return "http://localhost:8000";
