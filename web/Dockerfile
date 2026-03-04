@@ -78,7 +78,8 @@ NODE
 
 # Build Next.js (z diagnostyką npm logów jeśli padnie)
 RUN npm run build || (echo "---- npm logs ----" && ls -la /root/.npm/_logs || true && cat /root/.npm/_logs/*.log || true && echo "---- end npm logs ----" && exit 1)
-
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # ---- runner ----
 FROM node:20-alpine AS runner
