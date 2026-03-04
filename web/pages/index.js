@@ -1,12 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_URL;
-
-if (!API || !API.startsWith("http")) {
-  throw new Error(
-    'NEXT_PUBLIC_API_URL is missing/invalid. Set it to "https://orders_api.metrixmetal.work"'
-  );
-}
+const API = process.env.NEXT_PUBLIC_API_URL || "";
 
 export default function Home() {
   const [meta, setMeta] = useState(null);
@@ -458,7 +452,6 @@ return (
 onClick={(e) => {
   e.stopPropagation(); // żeby klik w pozycję nie zwijał od razu nagłówka grupy
   setOpenGroups((p) => ({ ...p, [pdfName]: !(p[pdfName] ?? false) })); // toggle grupy
-  onSelect(row);
 }}
 style={{
 cursor: "pointer",
