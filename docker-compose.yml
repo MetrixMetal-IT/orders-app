@@ -6,9 +6,7 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
-    ports:
-      - "40098:8000"
-    environment:
+      environment:
       # ---- MSSQL ----
       MSSQL_SERVER: "metrix-sql"
       MSSQL_PORT: "1433"
@@ -45,9 +43,7 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
-    ports:
-      - "40099:3000"
-    environment:
+      environment:
       NEXT_PUBLIC_API_URL: "https://orders_api.metrixmetal.work"
     depends_on:
       - api
