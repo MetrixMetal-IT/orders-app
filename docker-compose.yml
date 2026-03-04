@@ -40,11 +40,12 @@ services:
 
   web:
     container_name: orders_web
-    build:
-      context: ./web
-      dockerfile: Dockerfile
-    environment:
-      NEXT_PUBLIC_API_URL: "https://orders_api.metrixmetal.work"
+  build:
+    context: ./web
+    args:
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+  environment:
+    NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
     depends_on:
       - api
     restart: unless-stopped
