@@ -1,20 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 
-function getApiBase() {
-  const envApi = process.env.NEXT_PUBLIC_API_URL;
+const API = process.env.NEXT_PUBLIC_API_URL;
 
-  if (envApi && envApi.startsWith("http")) {
-    return envApi;
-  }
-
-  if (typeof window !== "undefined") {
-    return "";
-  }
-
-  return "http://localhost:8000";
+if (!API || !API.startsWith("http")) {
+  throw new Error(
+    'NEXT_PUBLIC_API_URL is missing/invalid. Set it to "https://orders_api.metrixmetal.work"'
+  );
 }
-
-const API = getApiBase();
 
 export default function Home() {
   const [meta, setMeta] = useState(null);
@@ -265,16 +257,16 @@ lastPdfNameRef.current = currentPdfName;
     const oneDriveId = pickField(row, ["onedriveId", "onedrive_id", "OneDriveId"]);
     const pdfUrl = pickField(row, ["pdfWebUrl", "pdf_web_url", "pdfUrl", "PDF_URL"]);
 
-    let proxied = null;
-    if (oneDriveId) {
-      if (pdfUrl) proxied = `${API}/pdf?id=${encodeURIComponent(oneDriveId)}&url=${encodeURIComponent(pdfUrl)}`;
-      else proxied = `${API}/pdf?id=${encodeURIComponent(oneDriveId)}`;
-    } else if (pdfUrl) {
-      proxied = `${API}/pdf?url=${encodeURIComponent(pdfUrl)}`;
-    } else {
-      setPdfMessage("Brak onedriveId i brak URL do PDF w rekordzie.");
-      return;
-    }
+  let proxied = null;
+  
+  if (oneDriveId) {
+    proxied = `${API}/pdf?id=${encodeURIComponent(oneDriveId)}`;
+  } else if (pdfUrl) {
+    proxied = `${API}/pdf?url=${encodeURIComponent(pdfUrl)}`;
+  } else {
+    setPdfMessage("Brak onedriveId i brak URL do PDF w rekordzie.");
+    return;
+  }
 
     setLoadingPdf(true);
     try {
