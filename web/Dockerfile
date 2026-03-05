@@ -28,53 +28,53 @@ COPY . .
 
 # Skopiuj pdf.js worker do /public/pdf.worker.min.js (lokalnie dla przeglądarki)
 # Bez postinstall, z fallbackami na różne layouty pdfjs-dist.
-RUN node - <<'NODE'
-const fs = require('fs');
-const path = require('path');
+# RUN node - <<'NODE'
+# const fs = require('fs');
+# const path = require('path');
 
-const candidates = [
-  // najczęstsze
-  'pdfjs-dist/build/pdf.worker.min.js',
-  'pdfjs-dist/legacy/build/pdf.worker.min.js',
-  // czasem występują warianty .mjs
-  'pdfjs-dist/build/pdf.worker.min.mjs',
-  'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
-];
+# const candidates = [
+#   // najczęstsze
+#   'pdfjs-dist/build/pdf.worker.min.js',
+#   'pdfjs-dist/legacy/build/pdf.worker.min.js',
+#   // czasem występują warianty .mjs
+#   'pdfjs-dist/build/pdf.worker.min.mjs',
+#   'pdfjs-dist/legacy/build/pdf.worker.min.mjs',
+# ];
 
-let src = null;
-for (const c of candidates) {
-  try { src = require.resolve(c); break; } catch (e) {}
-}
+# let src = null;
+# for (const c of candidates) {
+#   try { src = require.resolve(c); break; } catch (e) {}
+# }
 
-if (!src) {
-  console.error('ERROR: pdf.js worker not found in pdfjs-dist.');
-  console.error('Checked candidates:', candidates);
-  // pokaż co faktycznie jest w node_modules/pdfjs-dist (pomaga w debug)
-  try {
-    const pdfjsDir = path.join(process.cwd(), 'node_modules', 'pdfjs-dist');
-    console.error('pdfjs-dist dir exists:', fs.existsSync(pdfjsDir));
-    if (fs.existsSync(pdfjsDir)) {
-      const walk = (dir, depth=0) => {
-        if (depth > 3) return;
-        for (const name of fs.readdirSync(dir)) {
-          const p = path.join(dir, name);
-          const st = fs.statSync(p);
-          if (st.isDirectory()) walk(p, depth+1);
-          else if (name.includes('worker') && (name.endsWith('.js') || name.endsWith('.mjs'))) {
-            console.error('found:', path.relative(process.cwd(), p));
-          }
-        }
-      };
-      walk(pdfjsDir);
-    }
-  } catch (_) {}
-  process.exit(1);
-}
+# if (!src) {
+#   console.error('ERROR: pdf.js worker not found in pdfjs-dist.');
+#   console.error('Checked candidates:', candidates);
+#   // pokaż co faktycznie jest w node_modules/pdfjs-dist (pomaga w debug)
+#   try {
+#     const pdfjsDir = path.join(process.cwd(), 'node_modules', 'pdfjs-dist');
+#     console.error('pdfjs-dist dir exists:', fs.existsSync(pdfjsDir));
+#     if (fs.existsSync(pdfjsDir)) {
+#       const walk = (dir, depth=0) => {
+#         if (depth > 3) return;
+#         for (const name of fs.readdirSync(dir)) {
+#           const p = path.join(dir, name);
+#           const st = fs.statSync(p);
+#           if (st.isDirectory()) walk(p, depth+1);
+#           else if (name.includes('worker') && (name.endsWith('.js') || name.endsWith('.mjs'))) {
+#             console.error('found:', path.relative(process.cwd(), p));
+#           }
+#         }
+#       };
+#       walk(pdfjsDir);
+#     }
+#   } catch (_) {}
+#   process.exit(1);
+# }
 
-fs.mkdirSync('public', { recursive: true });
-fs.copyFileSync(src, path.join('public', 'pdf.worker.min.js'));
-console.log('OK: copied worker from', src, 'to public/pdf.worker.min.js');
-NODE
+# fs.mkdirSync('public', { recursive: true });
+# fs.copyFileSync(src, path.join('public', 'pdf.worker.min.js'));
+# console.log('OK: copied worker from', src, 'to public/pdf.worker.min.js');
+# NODE
 
 # Build Next.js (z diagnostyką npm logów jeśli padnie)
 COPY --from=deps /app/node_modules ./node_modules
