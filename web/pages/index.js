@@ -73,7 +73,8 @@ const [editForm, setEditForm] = useState({
       if (cancelled) return;
 
       // worker hostowany lokalnie (public/pdf.worker.min.js)
-      mod.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.js";
+  mod.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.4.168/pdf.worker.min.js";
 
       pdfjsRef.current = mod;
     })().catch((e) => {
