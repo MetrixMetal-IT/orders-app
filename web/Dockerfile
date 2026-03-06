@@ -27,7 +27,7 @@ ARG NEXT_PUBLIC_API_URL
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Worker PDF.js ładowany z CDN po stronie przeglądarki — brak lokalnego kopiowania
-RUN npm run build || ( \
+RUN node scripts/copy-pdf-worker && npm run build || ( \
       echo "---- npm logs ----" && \
       ls -la /root/.npm/_logs 2>/dev/null || true && \
       cat /root/.npm/_logs/*.log 2>/dev/null || true && \
