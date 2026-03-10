@@ -219,6 +219,7 @@ def list_orders(
     page: int = Query(1, ge=1),
     page_size: int = Query(50, ge=1, le=200),
     status: Optional[str] = Query(None),
+    exclude_status: Optional[str] = Query(None), 
     klient: Optional[str] = Query(None),
 ):
     cols = fetch_table_columns()
@@ -236,6 +237,11 @@ def list_orders(
     if status and flags["has_status"]:
         where.append(f"{safe_ident(STATUS_COLUMN)} = ?")
         params.append(status)
+    
+    if exclude_status and flags["has_status"]:
+        where.append(f"{safe_ident(STATUS_COLUMN)} <> ?")
+        params.append(exclude_status)
+        
 
     if klient and flags["has_client"]:
         where.append(f"{safe_ident(CLIENT_COLUMN)} LIKE ?")
