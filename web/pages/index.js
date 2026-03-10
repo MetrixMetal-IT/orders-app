@@ -510,7 +510,7 @@ export default function Home() {
                         {/* nagłówek pdf */}
                         <tr
                           onClick={(e) => { e.stopPropagation(); setOpenGroups((p) => ({ ...p, [pdfName]: !isPdfOpen })); }}
-                          style={{ cursor: "pointer", background: "#f7f7f7", borderTop: "1px solid #eee" }}
+                          style={{ cursor: "pointer", background: "#fef9c3", borderTop: "2px solid #fde047" }}
                         >
                           {/* ── 2. checkbox dla całego pdf ── */}
                           <td style={{ padding: "5px 6px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
