@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -28,108 +28,7 @@ function getPdfName(row) {
   return row?.pdfFileName ?? row?.PdfFileName ?? row?.pdf_filename ?? row?.pdf ?? "(brak pdfFileName)";
 }
 
-// ── 1. source_quote: znajdź stronę z cytatem ────────────────────────────────
-async function findQuotePageInDoc(doc, quote) {
-  if (!doc || !quote || quote.trim().length < 4) return null;
-  const needle = quote.trim().toLowerCase().replace(/\s+/g, " ");
-  for (let i = 1; i <= doc.numPages; i++) {
-    try {
-      const page = await doc.getPage(i);
-      const content = await page.getTextContent();
-      const text = content.items.map((it) => it.str).join(" ").toLowerCase().replace(/\s+/g, " ");
-      if (text.includes(needle)) return i;
-    } catch (_) { /* ignoruj błędy pojedynczej strony */ }
-  }
-  return null;
-}
 
-// ── 1. source_quote: narysuj żółte podświetlenie na canvas overlay ──────────
-async function highlightQuoteOnPage(doc, pageNum, quote, overlayCanvas, scale, outputScale) {
-  if (!doc || !quote || !overlayCanvas) return;
-  const needle = quote.trim().toLowerCase().replace(/\s+/g, " ");
-  try {
-    const page = await doc.getPage(pageNum);
-    const viewport = page.getViewport({ scale });
-    const content = await page.getTextContent();
-
-    overlayCanvas.width  = Math.floor(viewport.width  * outputScale);
-    overlayCanvas.height = Math.floor(viewport.height * outputScale);
-    overlayCanvas.style.width  = `${viewport.width}px`;
-    overlayCanvas.style.height = `${viewport.height}px`;
-
-    const ctx = overlayCanvas.getContext("2d");
-    ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
-    ctx.setTransform(outputScale, 0, 0, outputScale, 0, 0);
-
-    // Zbierz tokeny i zbuduj pełny tekst z mapą pozycji
-    const tokens = content.items.map((item) => ({
-      str: item.str, tx: item.transform, w: item.width, h: item.height,
-    }));
-
-    let fullText = "";
-    const charMap = [];
-    tokens.forEach((tok, ti) => {
-      for (let ci = 0; ci < tok.str.length; ci++) {
-        charMap.push({ ti, ci });
-        fullText += tok.str[ci];
-      }
-      fullText += " ";
-      charMap.push({ ti, ci: -1 });
-    });
-
-    const normFull = fullText.toLowerCase().replace(/\s+/g, " ");
-    let searchFrom = 0;
-    let found = false;
-
-    while (true) {
-      const idx = normFull.indexOf(needle, searchFrom);
-      if (idx === -1) break;
-      found = true;
-
-      const coveredTokens = new Set();
-      for (let ci = idx; ci < idx + needle.length; ci++) {
-        if (charMap[ci]) coveredTokens.add(charMap[ci].ti);
-      }
-
-      coveredTokens.forEach((ti) => {
-        const tok = tokens[ti];
-        if (!tok) return;
-        const [, , , , e, f] = tok.tx;
-        const pt    = viewport.convertToViewportPoint(e, f);
-        const ptEnd = viewport.convertToViewportPoint(e + tok.w, f + tok.h);
-        const rx = Math.min(pt[0], ptEnd[0]) - 1;
-        const ry = Math.min(pt[1], ptEnd[1]) - tok.h * scale - 2;
-        const rw = Math.abs(ptEnd[0] - pt[0]) + 2;
-        const rh = tok.h * scale + 4;
-        ctx.save();
-        ctx.globalAlpha = 0.38;
-        ctx.fillStyle = "#FFD600";
-        ctx.fillRect(rx, ry, rw, rh);
-        ctx.restore();
-      });
-
-      searchFrom = idx + needle.length;
-    }
-
-    if (!found) {
-      // Baner informacyjny u góry gdy nie znaleziono
-      ctx.save();
-      ctx.globalAlpha = 0.18;
-      ctx.fillStyle = "#FFD600";
-      ctx.fillRect(0, 0, viewport.width, 28);
-      ctx.restore();
-      ctx.save();
-      ctx.globalAlpha = 0.75;
-      ctx.fillStyle = "#7a6000";
-      ctx.font = "11px sans-serif";
-      ctx.fillText("⚠ Nie znaleziono fragmentu source_quote na tej stronie", 6, 18);
-      ctx.restore();
-    }
-  } catch (e) {
-    console.warn("highlightQuoteOnPage error", e);
-  }
-}
-// ────────────────────────────────────────────────────────────────────────────
 
 export default function Home() {
   const [meta, setMeta] = useState(null);
@@ -174,7 +73,6 @@ export default function Home() {
   const [editNumericErrors, setEditNumericErrors] = useState({ IloscKlienta: "", CenaOfertowa: "" });
 
   const canvasRef  = useRef(null);
-  const overlayRef = useRef(null); // ── 1. overlay dla highlight
   const pdfjsRef   = useRef(null);
   const pdfCacheRef = useRef(new Map());
   const MAX_PDF_CACHE = 5;
@@ -256,13 +154,6 @@ export default function Home() {
     }
   }, [items]);
   // ────────────────────────────────────────────────────────────────────────
-
-  async function updateStatus(id, status) {
-    const r = await fetch(`${API}/orders/${id}/status?status=${encodeURIComponent(status)}`, { method: "POST" });
-    if (!r.ok) { alert("Nie udało się zmienić statusu"); return; }
-    await loadList();
-    if (selected && selected[pk] === id) setSelected((s) => ({ ...s, Status: status }));
-  }
 
   // ── 2. bulk ──────────────────────────────────────────────────────────────
   async function bulkUpdateStatus(status) {
@@ -368,17 +259,10 @@ export default function Home() {
     const cacheKey = getPdfCacheKey(row);
     if (!cacheKey) { setPdfMessage("Brak onedriveId i brak URL do PDF w rekordzie."); return; }
 
-    const quote = row.sourceQuote ?? row.source_quote ?? "";
-
     const cached = pdfCacheRef.current.get(cacheKey);
     if (cached?.doc) {
       cached.lastUsed = Date.now();
       setPdfDoc(cached.doc);
-      // ── 1. znajdź stronę z quote ──
-      if (quote) {
-        const qPage = await findQuotePageInDoc(cached.doc, quote);
-        if (qPage) setPageNumber(qPage);
-      }
       setPdfMessage("PDF z cache.");
       return;
     }
@@ -396,11 +280,6 @@ export default function Home() {
       pdfCacheRef.current.set(cacheKey, { doc, lastUsed: Date.now() });
       prunePdfCache();
       setPdfDoc(doc);
-      // ── 1. znajdź stronę z quote po załadowaniu ──
-      if (quote) {
-        const qPage = await findQuotePageInDoc(doc, quote);
-        if (qPage && qPage !== pageNumber) setPageNumber(qPage);
-      }
       setPdfMessage("PDF załadowany.");
     } catch (e) {
       console.error(e);
@@ -408,8 +287,7 @@ export default function Home() {
     } finally { setLoadingPdf(false); }
   }
 
-  // ── 1. renderPage z overlayem highlight ─────────────────────────────────
-  const renderPage = useCallback(async () => {
+  async function renderPage() {
     try {
       if (!pdfDoc) return;
       const canvas = canvasRef.current;
@@ -425,25 +303,13 @@ export default function Home() {
       canvas.style.height = `${viewport.height}px`;
       ctx.setTransform(outputScale, 0, 0, outputScale, 0, 0);
       await pg.render({ canvasContext: ctx, viewport }).promise;
-
-      // highlight overlay
-      const quote = selected?.sourceQuote ?? selected?.source_quote ?? "";
-      if (quote && overlayRef.current) {
-        await highlightQuoteOnPage(pdfDoc, pageNumber, quote, overlayRef.current, scale, outputScale);
-      } else if (overlayRef.current) {
-        const oc = overlayRef.current;
-        oc.width = canvas.width; oc.height = canvas.height;
-        oc.style.width = canvas.style.width; oc.style.height = canvas.style.height;
-        oc.getContext("2d").clearRect(0, 0, oc.width, oc.height);
-      }
     } catch (e) {
       console.error("renderPage failed", e);
       setPdfMessage("renderPage failed: " + (e?.message || String(e)));
     }
-  }, [pdfDoc, pageNumber, selected]);
+  }
 
-  useEffect(() => { renderPage().catch(console.error); }, [renderPage]);
-  // ────────────────────────────────────────────────────────────────────────
+  useEffect(() => { renderPage().catch(console.error); }, [pdfDoc, pageNumber]);
 
   const selectedId = selected ? selected[pk] : null;
 
@@ -644,7 +510,7 @@ export default function Home() {
                         {/* nagłówek pdf */}
                         <tr
                           onClick={(e) => { e.stopPropagation(); setOpenGroups((p) => ({ ...p, [pdfName]: !isPdfOpen })); }}
-                          style={{ cursor: "pointer", background: "#fef9c3", borderTop: "2px solid #fde047" }}
+                          style={{ cursor: "pointer", background: "#f7f7f7", borderTop: "1px solid #eee" }}
                         >
                           {/* ── 2. checkbox dla całego pdf ── */}
                           <td style={{ padding: "5px 6px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
@@ -737,24 +603,10 @@ export default function Home() {
           <>
             <div style={{ display: "flex", gap: 8, marginBottom: 10, alignItems: "center" }}>
               <b>ID:</b> {selectedId}
-              <button onClick={() => updateStatus(selectedId, "new")}>new</button>
-              <button onClick={() => updateStatus(selectedId, "confirmed")}>confirmed</button>
-              <button onClick={() => updateStatus(selectedId, "rejected")}>rejected</button>
-              {loadingPdf && <span style={{ marginLeft: 8, fontSize: 12, color: "#888" }}>Ładowanie PDF...</span>}
+              {loadingPdf && <span style={{ fontSize: 12, color: "#888" }}>Ładowanie PDF...</span>}
             </div>
 
             {pdfMessage && <div style={{ fontSize: 12, color: "#444", marginBottom: 8 }}>{pdfMessage}</div>}
-
-            {/* ── 1. baner source_quote ── */}
-            {(selected?.sourceQuote ?? selected?.source_quote) && (
-              <div style={{
-                fontSize: 12, marginBottom: 10, padding: "5px 10px",
-                background: "#fffde7", border: "1px solid #ffe082", borderRadius: 4,
-              }}>
-                🔍 <b>Cytat źródłowy:</b> <i style={{ color: "#555" }}>„{selected?.sourceQuote ?? selected?.source_quote}"</i>
-                <span style={{ marginLeft: 8, color: "#aaa", fontSize: 11 }}>(podświetlono na PDF poniżej)</span>
-              </div>
-            )}
 
             {/* edycja */}
             <div style={{ marginBottom: 10, padding: 10, border: "1px solid #eee", background: "#fafafa" }}>
@@ -845,10 +697,8 @@ export default function Home() {
               <div style={{ fontSize: 12, color: "#666" }}>Strona: {pageNumber} / {pdfDoc?.numPages || "—"}</div>
             </div>
 
-            {/* ── 1. canvas + overlay pozycjonowany absolutnie nad nim ── */}
-            <div style={{ border: "1px solid #ddd", display: "inline-block", position: "relative" }}>
+            <div style={{ border: "1px solid #ddd", display: "inline-block" }}>
               <canvas ref={canvasRef} />
-              <canvas ref={overlayRef} style={{ position: "absolute", top: 0, left: 0, pointerEvents: "none" }} />
             </div>
           </>
         )}
