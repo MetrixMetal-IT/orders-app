@@ -28,6 +28,26 @@ function getPdfName(row) {
   return row?.pdfFileName ?? row?.PdfFileName ?? row?.pdf_filename ?? row?.pdf ?? "(brak pdfFileName)";
 }
 
+// Nazwy klientów które muszą pozostać w pełnej formie (whitelist).
+// Domyślnie grupujemy po pierwszym członie (np. "TRUMPF POLSKA" → "TRUMPF").
+// Wyjątki: SCANFIL (wiele oddziałów — każdy oddział to osobna grupa),
+//          BIO TECTOR (samo "BIO" jest bez sensu jako nazwa grupy).
+const KLIENT_FULL_NAME_WHITELIST = ["SCANFIL", "BIO TECTOR"];
+
+function normalizeKlientGroup(name) {
+  if (!name || name === "(brak klienta)") return name;
+  const upper = name.trim().toUpperCase();
+  // Sprawdź czy nazwa zaczyna się od któregoś z wyjątków — wtedy zostawiamy pełną nazwę
+  for (const prefix of KLIENT_FULL_NAME_WHITELIST) {
+    if (upper === prefix || upper.startsWith(prefix + " ") || upper.startsWith(prefix + "-")) {
+      return name.trim();
+    }
+  }
+  // Domyślnie: bierz tylko pierwszy człon (do pierwszej spacji)
+  const firstWord = name.trim().split(/\s+/)[0];
+  return firstWord || name.trim();
+}
+
 
 
 export default function Home() {
@@ -319,10 +339,10 @@ export default function Home() {
     for (const r of items) {
       const st = (r.Status ?? r.status ?? "").toString().toLowerCase();
       if (st !== "new") continue;
-      const klient  = r.Klient ?? r.klient ?? "(brak klienta)";
-      const pdfName = getPdfName(r);
-      if (!m.has(klient)) m.set(klient, { total: 0, pdfs: new Map() });
-      const entry = m.get(klient);
+      const groupKey = normalizeKlientGroup(r.Klient ?? r.klient ?? "(brak klienta)");
+      const pdfName  = getPdfName(r);
+      if (!m.has(groupKey)) m.set(groupKey, { total: 0, pdfs: new Map() });
+      const entry = m.get(groupKey);
       entry.total++;
       entry.pdfs.set(pdfName, (entry.pdfs.get(pdfName) ?? 0) + 1);
     }
@@ -347,16 +367,19 @@ export default function Home() {
   }, [items]);
 
   const groupedByKlient = useMemo(() => {
+    // outer: groupKey → { pdfMap: Map<pdfName, rows[]>, originalNames: Set<string> }
     const outer = new Map();
     for (const r of items) {
-      const klient  = r.Klient ?? r.klient ?? "(brak klienta)";
-      const pdfName = getPdfName(r);
-      if (!outer.has(klient)) outer.set(klient, new Map());
-      const inner = outer.get(klient);
-      if (!inner.has(pdfName)) inner.set(pdfName, []);
-      inner.get(pdfName).push(r);
+      const rawKlient = r.Klient ?? r.klient ?? "(brak klienta)";
+      const groupKey  = normalizeKlientGroup(rawKlient);
+      const pdfName   = getPdfName(r);
+      if (!outer.has(groupKey)) outer.set(groupKey, { pdfMap: new Map(), originalNames: new Set() });
+      const entry = outer.get(groupKey);
+      entry.originalNames.add(rawKlient);
+      if (!entry.pdfMap.has(pdfName)) entry.pdfMap.set(pdfName, []);
+      entry.pdfMap.get(pdfName).push(r);
     }
-    for (const pdfMap of outer.values()) {
+    for (const { pdfMap } of outer.values()) {
       for (const [pdfName, arr] of pdfMap.entries()) {
         arr.sort((a, b) => Number(a.Pozycja ?? a.pozycja ?? 0) - Number(b.Pozycja ?? b.pozycja ?? 0));
         pdfMap.set(pdfName, arr);
@@ -464,14 +487,17 @@ export default function Home() {
               <th style={thStyle}>NazwaKlienta</th>
               <th style={thStyle}>Ilość</th>
               <th style={thStyle}>Cena</th>
+              <th style={thStyle}>Oferta</th>
+              <th style={thStyle}>Data oferty</th>
             </tr>
           </thead>
 
           <tbody>
-            {groupedByKlient.map(([klientName, pdfMap]) => {
+            {groupedByKlient.map(([klientName, { pdfMap, originalNames }]) => {
               const isKlientOpen = openKlients[klientName] ?? false;
               const totalRowsForKlient = Array.from(pdfMap.values()).reduce((s, a) => s + a.length, 0);
-              const newCount = newCountMap.get(klientName)?.total ?? 0; // ── 3.
+              const newCount = newCountMap.get(klientName)?.total ?? 0;
+
 
               return (
                 <React.Fragment key={klientName}>
@@ -480,13 +506,14 @@ export default function Home() {
                     onClick={() => setOpenKlients((p) => ({ ...p, [klientName]: !isKlientOpen }))}
                     style={{ cursor: "pointer", background: "#e8edf5", borderTop: "2px solid #c5cfe0" }}
                   >
-                    <td colSpan={8} style={{ padding: "7px 6px", fontWeight: "bold", fontSize: 12 }}>
+                    <td colSpan={10} style={{ padding: "7px 6px", fontWeight: "bold", fontSize: 12 }}>
                       <span style={{ display: "inline-block", width: 18 }}>{isKlientOpen ? "▾" : "▸"}</span>
                       🏢 {klientName}
                       <span style={{ marginLeft: 10, color: "#555", fontWeight: "normal" }}>
                         ({pdfMap.size} {pdfMap.size === 1 ? "zamówienie" : "zamówień"},{" "}
                         {totalRowsForKlient} {totalRowsForKlient === 1 ? "pozycja" : "pozycji"})
                       </span>
+
                       {/* ── 3. badge nowych ── */}
                       {newCount > 0 && (
                         <span style={{
@@ -501,7 +528,7 @@ export default function Home() {
 
                   {isKlientOpen && Array.from(pdfMap.entries()).map(([pdfName, rows]) => {
                     const isPdfOpen    = openGroups[pdfName] ?? false;
-                    const pdfNewCount  = newCountMap.get(klientName)?.pdfs.get(pdfName) ?? 0; // ── 3.
+                    const pdfNewCount  = newCountMap.get(klientName)?.pdfs.get(pdfName) ?? 0;
                     const pdfRowIds    = rows.map((r) => r[pk]).filter(Boolean);
                     const pdfAllChecked = pdfRowIds.length > 0 && pdfRowIds.every((id) => checkedIds.has(id));
 
@@ -510,14 +537,14 @@ export default function Home() {
                         {/* nagłówek pdf */}
                         <tr
                           onClick={(e) => { e.stopPropagation(); setOpenGroups((p) => ({ ...p, [pdfName]: !isPdfOpen })); }}
-                          style={{ cursor: "pointer", background: "#fef9c3", borderTop: "2px solid #fde047" }}
+                          style={{ cursor: "pointer", background: "#fef9c3", borderTop: "1px solid #eee" }}
                         >
                           {/* ── 2. checkbox dla całego pdf ── */}
                           <td style={{ padding: "5px 6px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
                             <input type="checkbox" checked={pdfAllChecked}
                               onChange={() => toggleCheckAll(pdfRowIds)} />
                           </td>
-                          <td colSpan={7} style={{ padding: "5px 6px 5px 8px", fontSize: 12 }}>
+                          <td colSpan={9} style={{ padding: "5px 6px 5px 8px", fontSize: 12 }}>
                             <span style={{ display: "inline-block", width: 18 }}>{isPdfOpen ? "▾" : "▸"}</span>
                             📄 {pdfName}
                             <span style={{ marginLeft: 8, color: "#888", fontSize: 11 }}>({rows.length} pozycji)</span>
@@ -543,6 +570,8 @@ export default function Home() {
                           const iloscKlienta = row.IloscKlienta ?? row.iloscKlienta ?? "";
                           const waluta       = row.OfertaWaluta ?? row.ofertaWaluta ?? "";
                           const cenaOfertowa = [row.CenaOfertowa ?? row.cenaOfertowa ?? "", waluta].filter(Boolean).join(" ");
+                          const oferta       = row.Oferta       ?? row.oferta       ?? "";
+                          const dataOferty   = row.DataUtworzenia ?? row.dataUtworzenia ?? "";
                           const isSel       = selectedId === id;
                           const st          = (status ?? "").toString().toLowerCase();
                           const statusBg    = st === "rejected" ? "#f1f1f1" : st === "confirmed" ? "#e9f7ee" : "transparent";
@@ -581,6 +610,8 @@ export default function Home() {
                               </td>
                               <td style={tdStyle}>{iloscKlienta}</td>
                               <td style={tdStyle}>{cenaOfertowa}</td>
+                              <td style={tdStyle}>{oferta}</td>
+                              <td style={{ ...tdStyle, whiteSpace: "nowrap" }}>{dataOferty ? String(dataOferty).slice(0, 10) : ""}</td>
                             </tr>
                           );
                         })}
