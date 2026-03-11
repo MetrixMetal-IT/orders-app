@@ -302,7 +302,7 @@ def get_order(id: int):
 
 
 @app.post("/orders/{id}/status")
-def set_status(id: int, status: str = Query(..., pattern="^(new|confirmed|rejected)$")):
+def set_status(id: int, status: str = Query(..., pattern="^(nowe|wyświetlone|zaakceptowane|odrzucone)$")):
     cols = fetch_table_columns()
     flags = validate_config_columns(cols)
 
