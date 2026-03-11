@@ -139,7 +139,7 @@ export default function Home() {
       params.set("page_size", String(pageSize));
       // ── 5. obsługa non-rejected ──
       if (statusFilter === "non-rejected") {
-        params.set("exclude_status", "rejected");
+        params.set("exclude_status", "odrzucone");
       } else if (statusFilter) {
         params.set("status", statusFilter);
       }
@@ -174,6 +174,20 @@ export default function Home() {
     }
   }, [items]);
   // ────────────────────────────────────────────────────────────────────────
+
+  // ── auto-wyświetlone: zmień status z 'nowe' na 'wyświetlone' po kliknięciu ──
+  async function markAsViewed(row) {
+    const id = row[pk];
+    const st = (row.Status ?? row.status ?? "").toString().toLowerCase();
+    if (st !== "nowe") return; // tylko jeśli aktualnie 'nowe'
+    try {
+      const r = await fetch(`${API}/orders/${id}/status?status=${encodeURIComponent("wyświetlone")}`, { method: "POST" });
+      if (!r.ok) return;
+      // aktualizuj lokalnie bez przeładowania całej listy
+      setItems((prev) => prev.map((x) => x[pk] === id ? { ...x, Status: "wyświetlone" } : x));
+      setSelected((s) => s && s[pk] === id ? { ...s, Status: "wyświetlone" } : s);
+    } catch (_) { /* cicho ignoruj — nie blokuj UX */ }
+  }
 
   // ── 2. bulk ──────────────────────────────────────────────────────────────
   async function bulkUpdateStatus(status) {
@@ -284,6 +298,7 @@ export default function Home() {
       cached.lastUsed = Date.now();
       setPdfDoc(cached.doc);
       setPdfMessage("PDF z cache.");
+      markAsViewed(row); // PDF dostępny z cache — też liczy jako wyświetlony
       return;
     }
 
@@ -301,6 +316,7 @@ export default function Home() {
       prunePdfCache();
       setPdfDoc(doc);
       setPdfMessage("PDF załadowany.");
+      markAsViewed(row); // zmień 'nowe' → 'wyświetlone' dopiero po sukcesie załadowania PDF
     } catch (e) {
       console.error(e);
       setPdfMessage("Nie udało się załadować PDF. Sprawdź konsolę.");
@@ -338,7 +354,7 @@ export default function Home() {
     const m = new Map();
     for (const r of items) {
       const st = (r.Status ?? r.status ?? "").toString().toLowerCase();
-      if (st !== "new") continue;
+      if (st !== "nowe") continue;
       const groupKey = normalizeKlientGroup(r.Klient ?? r.klient ?? "(brak klienta)");
       const pdfName  = getPdfName(r);
       if (!m.has(groupKey)) m.set(groupKey, { total: 0, pdfs: new Map() });
@@ -355,7 +371,7 @@ export default function Home() {
     for (const r of items) {
       const pdfName = getPdfName(r);
       const status = (r.Status ?? r.status ?? "").toString().toLowerCase();
-      if (status === "rejected") continue;
+      if (status === "odrzucone") continue;
       const pos = r.Pozycja ?? r.pozycja ?? "";
       const keyPos = String(pos).trim();
       if (!keyPos) continue;
@@ -413,9 +429,10 @@ export default function Home() {
           <select value={statusFilter} onChange={(e) => { setPage(1); setStatusFilter(e.target.value); }}>
             <option value="non-rejected">status: (bez odrzuconych)</option>
             <option value="">status: (wszystkie)</option>
-            <option value="new">new</option>
-            <option value="confirmed">confirmed</option>
-            <option value="rejected">rejected</option>
+            <option value="nowe">nowe</option>
+            <option value="wyświetlone">wyświetlone</option>
+            <option value="zaakceptowane">zaakceptowane</option>
+            <option value="odrzucone">odrzucone</option>
           </select>
           {/* ── 5. zmieniony placeholder ── */}
           <input
@@ -462,9 +479,9 @@ export default function Home() {
           }}>
             <b>Zaznaczono: {checkedIds.size}</b>
             <span style={{ color: "#888" }}>→ zmień status na:</span>
-            <button onClick={() => bulkUpdateStatus("new")}       disabled={bulkSaving}>new</button>
-            <button onClick={() => bulkUpdateStatus("confirmed")} disabled={bulkSaving}>confirmed</button>
-            <button onClick={() => bulkUpdateStatus("rejected")}  disabled={bulkSaving}>rejected</button>
+            <button onClick={() => bulkUpdateStatus("wyświetlone")}    disabled={bulkSaving}>wyświetlone</button>
+            <button onClick={() => bulkUpdateStatus("zaakceptowane")} disabled={bulkSaving}>zaakceptowane</button>
+            <button onClick={() => bulkUpdateStatus("odrzucone")}     disabled={bulkSaving}>odrzucone</button>
             <button onClick={() => setCheckedIds(new Set())}
               style={{ marginLeft: "auto", color: "#888", fontSize: 11 }}>
               ✕ Odznacz wszystkie
@@ -537,7 +554,7 @@ export default function Home() {
                         {/* nagłówek pdf */}
                         <tr
                           onClick={(e) => { e.stopPropagation(); setOpenGroups((p) => ({ ...p, [pdfName]: !isPdfOpen })); }}
-                          style={{ cursor: "pointer", background: "#fef9c3", borderTop: "1px solid #eee" }}
+                          style={{ cursor: "pointer", background: "#f7f7f7", borderTop: "1px solid #eee" }}
                         >
                           {/* ── 2. checkbox dla całego pdf ── */}
                           <td style={{ padding: "5px 6px", textAlign: "center" }} onClick={(e) => e.stopPropagation()}>
@@ -574,9 +591,9 @@ export default function Home() {
                           const dataOferty   = row.DataUtworzenia ?? row.dataUtworzenia ?? "";
                           const isSel       = selectedId === id;
                           const st          = (status ?? "").toString().toLowerCase();
-                          const statusBg    = st === "rejected" ? "#f1f1f1" : st === "confirmed" ? "#e9f7ee" : "transparent";
+                          const statusBg    = st === "odrzucone" ? "#f1f1f1" : st === "zaakceptowane" ? "#e9f7ee" : st === "wyświetlone" ? "#f0f4ff" : "transparent";
                           const posKey      = String(pozycja ?? "").trim();
-                          const isDup       = st !== "rejected" && posKey && (dupPosMap.get(pdfName)?.get(posKey) ?? 0) > 1;
+                          const isDup       = st !== "odrzucone" && posKey && (dupPosMap.get(pdfName)?.get(posKey) ?? 0) > 1;
                           const isChecked   = checkedIds.has(id);
 
                           return (
@@ -590,7 +607,7 @@ export default function Home() {
                               style={{
                                 cursor: "pointer",
                                 background: isSel ? "#f3f6ff" : isChecked ? "#fffde7" : isDup ? "#ffe5e5" : statusBg,
-                                color: st === "rejected" ? "#999" : "inherit",
+                                color: st === "odrzucone" ? "#999" : "inherit",
                                 borderLeft: isDup ? "4px solid crimson" : "4px solid transparent",
                               }}
                             >
