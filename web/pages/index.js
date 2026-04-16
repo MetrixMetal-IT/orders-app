@@ -28,6 +28,20 @@ function getPdfName(row) {
   return row?.pdfFileName ?? row?.PdfFileName ?? row?.pdf_filename ?? row?.pdf ?? "(brak pdfFileName)";
 }
 
+function getRowCreatedAtMs(row) {
+  const raw =
+    row?.DataAutomatu ??
+    row?.dataAutomatu ??
+    row?.createdAt ??
+    row?.CreatedAt ??
+    null;
+
+  if (!raw) return Number.NEGATIVE_INFINITY;
+
+  const parsed = Date.parse(raw);
+  return Number.isNaN(parsed) ? Number.NEGATIVE_INFINITY : parsed;
+}
+
 // Nazwy klientów które muszą pozostać w pełnej formie (whitelist).
 // Domyślnie grupujemy po pierwszym członie (np. "TRUMPF POLSKA" → "TRUMPF").
 // Wyjątki: SCANFIL (wiele oddziałów — każdy oddział to osobna grupa),
@@ -35,17 +49,19 @@ function getPdfName(row) {
 const KLIENT_FULL_NAME_WHITELIST = ["SCANFIL", "BIO TECTOR"];
 
 function normalizeKlientGroup(name) {
-  if (!name || name === "(brak klienta)") return name;
-  const upper = name.trim().toUpperCase();
+  if (name === null || name === undefined || name === "") return "(brak klienta)";
+  const safeName = String(name).trim();
+  if (!safeName || safeName === "(brak klienta)") return "(brak klienta)";
+  const upper = safeName.toUpperCase();
   // Sprawdź czy nazwa zaczyna się od któregoś z wyjątków — wtedy zostawiamy pełną nazwę
   for (const prefix of KLIENT_FULL_NAME_WHITELIST) {
     if (upper === prefix || upper.startsWith(prefix + " ") || upper.startsWith(prefix + "-")) {
-      return name.trim();
+      return safeName;
     }
   }
   // Domyślnie: bierz tylko pierwszy człon (do pierwszej spacji)
-  const firstWord = name.trim().split(/\s+/)[0];
-  return firstWord || name.trim();
+  const firstWord = safeName.split(/\s+/)[0];
+  return firstWord || safeName;
 }
 
 
@@ -384,13 +400,13 @@ export default function Home() {
 
   const groupedByKlient = useMemo(() => {
     const outer = new Map();
-  
-    for (const r of Array.isArray(items) ? items : []) {
-      const rawKlient = r?.Klient ?? r?.klient ?? "(brak klienta)";
+
+    for (const r of items) {
+      const rawKlient = r.Klient ?? r.klient ?? "(brak klienta)";
       const groupKey = normalizeKlientGroup(rawKlient);
       const pdfName = getPdfName(r);
       const rowCreatedAtMs = getRowCreatedAtMs(r);
-  
+
       if (!outer.has(groupKey)) {
         outer.set(groupKey, {
           pdfMap: new Map(),
@@ -398,41 +414,36 @@ export default function Home() {
           latestCreatedAtMs: rowCreatedAtMs,
         });
       }
-  
+
       const entry = outer.get(groupKey);
       entry.originalNames.add(rawKlient);
-      entry.latestCreatedAtMs = Math.max(
-        entry.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY,
-        rowCreatedAtMs
-      );
-  
+      entry.latestCreatedAtMs = Math.max(entry.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY, rowCreatedAtMs);
+
       if (!entry.pdfMap.has(pdfName)) entry.pdfMap.set(pdfName, []);
       entry.pdfMap.get(pdfName).push(r);
     }
-  
+
     const groupedEntries = Array.from(outer.entries()).map(([groupKey, entry]) => {
       const sortedPdfEntries = Array.from(entry.pdfMap.entries())
         .map(([pdfName, arr]) => {
-          const safeRows = Array.isArray(arr) ? arr : [];
-          safeRows.sort((a, b) => Number(a?.Pozycja ?? a?.pozycja ?? 0) - Number(b?.Pozycja ?? b?.pozycja ?? 0));
-  
-          const latestCreatedAtMs = safeRows.reduce(
+          arr.sort((a, b) => Number(a.Pozycja ?? a.pozycja ?? 0) - Number(b.Pozycja ?? b.pozycja ?? 0));
+          const latestCreatedAtMs = arr.reduce(
             (maxTs, row) => Math.max(maxTs, getRowCreatedAtMs(row)),
             Number.NEGATIVE_INFINITY
           );
-  
-          return [pdfName, safeRows, latestCreatedAtMs];
+
+          return [pdfName, arr, latestCreatedAtMs];
         })
         .sort((a, b) => {
           if (b[2] !== a[2]) return b[2] - a[2];
-          return String(a[0] ?? "").localeCompare(String(b[0] ?? ""), "pl");
+          return String(a[0]).localeCompare(String(b[0]), "pl");
         });
-  
+
       const pdfMap = new Map();
       for (const [pdfName, arr] of sortedPdfEntries) {
         pdfMap.set(pdfName, arr);
       }
-  
+
       return [
         groupKey,
         {
@@ -442,20 +453,17 @@ export default function Home() {
         },
       ];
     });
-  
+
     groupedEntries.sort((a, b) => {
-      const latestA = a?.[1]?.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
-      const latestB = b?.[1]?.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
-  
+      const latestA = a[1].latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
+      const latestB = b[1].latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
+
       if (latestB !== latestA) return latestB - latestA;
-      return String(a?.[0] ?? "").localeCompare(String(b?.[0] ?? ""), "pl");
+      return String(a[0]).localeCompare(String(b[0]), "pl");
     });
-  
+
     return groupedEntries;
   }, [items]);
-
-
-
 
   function handleNumericChange(field, raw) {
     setEditForm((p) => ({ ...p, [field]: raw }));
@@ -563,9 +571,14 @@ export default function Home() {
           </thead>
 
           <tbody>
-            {(Array.isArray(groupedByKlient) ? groupedByKlient : []).map(([klientName, { pdfMap, originalNames }]) => {
+            {(Array.isArray(groupedByKlient) ? groupedByKlient : []).map(([klientName, groupEntry]) => {
+              const pdfMap = groupEntry?.pdfMap instanceof Map ? groupEntry.pdfMap : new Map();
+              const originalNames = groupEntry?.originalNames ?? new Set();
               const isKlientOpen = openKlients[klientName] ?? false;
-              const totalRowsForKlient = Array.from(pdfMap.values()).reduce((s, a) => s + a.length, 0);
+              const totalRowsForKlient = Array.from(pdfMap.values()).reduce(
+                (s, a) => s + (Array.isArray(a) ? a.length : 0),
+                0
+              );
               const newCount = newCountMap.get(klientName)?.total ?? 0;
 
 
@@ -597,9 +610,10 @@ export default function Home() {
                   </tr>
 
                   {isKlientOpen && Array.from(pdfMap.entries()).map(([pdfName, rows]) => {
+                    const safeRows = Array.isArray(rows) ? rows : [];
                     const isPdfOpen    = openGroups[pdfName] ?? false;
                     const pdfNewCount  = newCountMap.get(klientName)?.pdfs.get(pdfName) ?? 0;
-                    const pdfRowIds    = rows.map((r) => r[pk]).filter(Boolean);
+                    const pdfRowIds    = safeRows.map((r) => r?.[pk]).filter(Boolean);
                     const pdfAllChecked = pdfRowIds.length > 0 && pdfRowIds.every((id) => checkedIds.has(id));
 
                     return (
@@ -617,7 +631,7 @@ export default function Home() {
                           <td colSpan={9} style={{ padding: "5px 6px 5px 8px", fontSize: 12 }}>
                             <span style={{ display: "inline-block", width: 18 }}>{isPdfOpen ? "▾" : "▸"}</span>
                             📄 {pdfName}
-                            <span style={{ marginLeft: 8, color: "#888", fontSize: 11 }}>({rows.length} pozycji)</span>
+                            <span style={{ marginLeft: 8, color: "#888", fontSize: 11 }}>({safeRows.length} pozycji)</span>
                             {/* ── 3. badge nowych dla pdf ── */}
                             {pdfNewCount > 0 && (
                               <span style={{
@@ -630,7 +644,7 @@ export default function Home() {
                           </td>
                         </tr>
 
-                        {isPdfOpen && rows.map((row) => {
+                        {isPdfOpen && safeRows.map((row) => {
                           const id           = row[pk];
                           const pozycja      = row.Pozycja      ?? row.pozycja      ?? "";
                           const status       = row.Status       ?? row.status       ?? "";
@@ -807,3 +821,4 @@ export default function Home() {
     </div>
   );
 }
+
