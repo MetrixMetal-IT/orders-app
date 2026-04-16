@@ -785,6 +785,7 @@ export default function Home() {
                     ["Oferta",               selected?.oferta        ?? ""],
                     ["DataUtworzeniaOferty", selected?.DataUtworzenia ?? ""],
                     ["DataWaznosciOferty",   selected?.DataWaznosci  ?? ""],
+                    ["OczekiwanaDataDostawy", selected?.ExpectedDeliveryDate ?? selected?.expectedDeliveryDate ?? selected?.expected_delivery_date ?? ""],
                     ["IloscZOferty",         selected?.IloscZOferty  ?? ""],
                     ["IloscKlienta",         selected?.IloscKlienta  ?? selected?.iloscKlienta  ?? ""],
                     ["CenaOfertowa",         selected?.CenaOfertowa  ?? selected?.cenaOfertowa  ?? ""],
