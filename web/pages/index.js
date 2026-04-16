@@ -383,26 +383,72 @@ export default function Home() {
   }, [items]);
 
   const groupedByKlient = useMemo(() => {
-    // outer: groupKey → { pdfMap: Map<pdfName, rows[]>, originalNames: Set<string> }
     const outer = new Map();
+  
     for (const r of items) {
       const rawKlient = r.Klient ?? r.klient ?? "(brak klienta)";
-      const groupKey  = normalizeKlientGroup(rawKlient);
-      const pdfName   = getPdfName(r);
-      if (!outer.has(groupKey)) outer.set(groupKey, { pdfMap: new Map(), originalNames: new Set() });
+      const groupKey = normalizeKlientGroup(rawKlient);
+      const pdfName = getPdfName(r);
+      const rowCreatedAtMs = getRowCreatedAtMs(r);
+  
+      if (!outer.has(groupKey)) {
+        outer.set(groupKey, {
+          pdfMap: new Map(),
+          originalNames: new Set(),
+          latestCreatedAtMs: rowCreatedAtMs,
+        });
+      }
+  
       const entry = outer.get(groupKey);
       entry.originalNames.add(rawKlient);
+      entry.latestCreatedAtMs = Math.max(entry.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY, rowCreatedAtMs);
+  
       if (!entry.pdfMap.has(pdfName)) entry.pdfMap.set(pdfName, []);
       entry.pdfMap.get(pdfName).push(r);
     }
-    for (const { pdfMap } of outer.values()) {
-      for (const [pdfName, arr] of pdfMap.entries()) {
-        arr.sort((a, b) => Number(a.Pozycja ?? a.pozycja ?? 0) - Number(b.Pozycja ?? b.pozycja ?? 0));
+  
+    const groupedEntries = Array.from(outer.entries()).map(([groupKey, entry]) => {
+      const sortedPdfEntries = Array.from(entry.pdfMap.entries())
+        .map(([pdfName, arr]) => {
+          arr.sort((a, b) => Number(a.Pozycja ?? a.pozycja ?? 0) - Number(b.Pozycja ?? b.pozycja ?? 0));
+          const latestCreatedAtMs = arr.reduce(
+            (maxTs, row) => Math.max(maxTs, getRowCreatedAtMs(row)),
+            Number.NEGATIVE_INFINITY
+          );
+  
+          return [pdfName, arr, latestCreatedAtMs];
+        })
+        .sort((a, b) => {
+          if (b[2] !== a[2]) return b[2] - a[2];
+          return String(a[0]).localeCompare(String(b[0]), "pl");
+        });
+  
+      const pdfMap = new Map();
+      for (const [pdfName, arr] of sortedPdfEntries) {
         pdfMap.set(pdfName, arr);
       }
-    }
-    return Array.from(outer.entries());
+  
+      return [
+        groupKey,
+        {
+          pdfMap,
+          originalNames: entry.originalNames,
+          latestCreatedAtMs: entry.latestCreatedAtMs,
+        },
+      ];
+    });
+  
+    groupedEntries.sort((a, b) => {
+      const latestA = a[1].latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
+      const latestB = b[1].latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
+  
+      if (latestB !== latestA) return latestB - latestA;
+      return String(a[0]).localeCompare(String(b[0]), "pl");
+    });
+  
+    return groupedEntries;
   }, [items]);
+
 
   function handleNumericChange(field, raw) {
     setEditForm((p) => ({ ...p, [field]: raw }));
