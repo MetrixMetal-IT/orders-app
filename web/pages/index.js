@@ -563,7 +563,7 @@ export default function Home() {
           </thead>
 
           <tbody>
-            {groupedByKlient.map(([klientName, { pdfMap, originalNames }]) => {
+            {(Array.isArray(groupedByKlient) ? groupedByKlient : []).map(([klientName, { pdfMap, originalNames }]) => {
               const isKlientOpen = openKlients[klientName] ?? false;
               const totalRowsForKlient = Array.from(pdfMap.values()).reduce((s, a) => s + a.length, 0);
               const newCount = newCountMap.get(klientName)?.total ?? 0;
