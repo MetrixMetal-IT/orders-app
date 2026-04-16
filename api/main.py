@@ -224,12 +224,32 @@ def list_orders(
 ):
     cols = fetch_table_columns()
     flags = validate_config_columns(cols)
+    cols_set = set(cols)
 
     if not flags["has_pk"]:
         raise HTTPException(status_code=500, detail=f"PK column '{MSSQL_PK}' not found in table")
 
     table_sql = safe_table(MSSQL_TABLE)
     pk_sql = safe_ident(MSSQL_PK)
+    client_sql = safe_ident(CLIENT_COLUMN)
+
+    created_at_col = None
+    if "DataAutomatu" in cols_set:
+        created_at_col = safe_ident("DataAutomatu")
+    elif "dataAutomatu" in cols_set:
+        created_at_col = safe_ident("dataAutomatu")
+
+    pdf_file_col = None
+    if "pdfFileName" in cols_set:
+        pdf_file_col = safe_ident("pdfFileName")
+    elif "PdfFileName" in cols_set:
+        pdf_file_col = safe_ident("PdfFileName")
+
+    position_col = None
+    if "Pozycja" in cols_set:
+        position_col = safe_ident("Pozycja")
+    elif "pozycja" in cols_set:
+        position_col = safe_ident("pozycja")
 
     where = []
     params: List[Any] = []
@@ -251,10 +271,43 @@ def list_orders(
     offset = (page - 1) * page_size
 
     count_sql = f"SELECT COUNT(1) AS cnt FROM {table_sql}{where_sql};"
+
+    trimmed_client_expr = f"LTRIM(RTRIM(ISNULL(CONVERT(NVARCHAR(4000), {client_sql}), '')))"
+    klient_group_expr = (
+        "CASE "
+        f"WHEN UPPER({trimmed_client_expr}) LIKE 'SCANFIL%' THEN {trimmed_client_expr} "
+        f"WHEN UPPER({trimmed_client_expr}) LIKE 'BIO TECTOR%' THEN {trimmed_client_expr} "
+        f"WHEN CHARINDEX(' ', {trimmed_client_expr}) > 0 THEN LEFT({trimmed_client_expr}, CHARINDEX(' ', {trimmed_client_expr}) - 1) "
+        f"ELSE {trimmed_client_expr} "
+        "END"
+    )
+
+    if created_at_col:
+        order_created_expr = f"MAX({created_at_col}) OVER (PARTITION BY {klient_group_expr})"
+        row_created_expr = created_at_col
+    else:
+        order_created_expr = "CAST('1900-01-01' AS DATETIME)"
+        row_created_expr = "CAST('1900-01-01' AS DATETIME)"
+
+    pdf_order_expr = pdf_file_col if pdf_file_col else "''"
+    position_order_expr = position_col if position_col else "0"
+
     items_sql = (
-        f"SELECT * FROM {table_sql}{where_sql} "
-        f"ORDER BY {safe_ident('Klient')} ASC, {safe_ident('pdfFileName')} ASC, {safe_ident('Pozycja')} ASC "
-        f"OFFSET ? ROWS FETCH NEXT ? ROWS ONLY;"
+        "WITH filtered AS ("
+        f"    SELECT *, "
+        f"           {klient_group_expr} AS klient_group, "
+        f"           {order_created_expr} AS klient_latest_created_at, "
+        f"           {row_created_expr} AS row_created_at "
+        f"    FROM {table_sql}{where_sql} "
+        ") "
+        "SELECT * FROM filtered "
+        "ORDER BY "
+        "    klient_latest_created_at DESC, "
+        "    klient_group ASC, "
+        "    row_created_at DESC, "
+        f"    {pdf_order_expr} ASC, "
+        f"    {position_order_expr} ASC "
+        "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY;"
     )
 
     with get_conn() as conn:
@@ -613,6 +666,9 @@ async def pdf_proxy(
 
     gen, headers, upstream_status = await fetch_pdf_stream(url, range_header=range_header)
     return build_response(gen, headers, upstream_status)
+
+
+
 
 
 
