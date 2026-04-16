@@ -385,8 +385,8 @@ export default function Home() {
   const groupedByKlient = useMemo(() => {
     const outer = new Map();
   
-    for (const r of items) {
-      const rawKlient = r.Klient ?? r.klient ?? "(brak klienta)";
+    for (const r of Array.isArray(items) ? items : []) {
+      const rawKlient = r?.Klient ?? r?.klient ?? "(brak klienta)";
       const groupKey = normalizeKlientGroup(rawKlient);
       const pdfName = getPdfName(r);
       const rowCreatedAtMs = getRowCreatedAtMs(r);
@@ -401,7 +401,10 @@ export default function Home() {
   
       const entry = outer.get(groupKey);
       entry.originalNames.add(rawKlient);
-      entry.latestCreatedAtMs = Math.max(entry.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY, rowCreatedAtMs);
+      entry.latestCreatedAtMs = Math.max(
+        entry.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY,
+        rowCreatedAtMs
+      );
   
       if (!entry.pdfMap.has(pdfName)) entry.pdfMap.set(pdfName, []);
       entry.pdfMap.get(pdfName).push(r);
@@ -410,17 +413,19 @@ export default function Home() {
     const groupedEntries = Array.from(outer.entries()).map(([groupKey, entry]) => {
       const sortedPdfEntries = Array.from(entry.pdfMap.entries())
         .map(([pdfName, arr]) => {
-          arr.sort((a, b) => Number(a.Pozycja ?? a.pozycja ?? 0) - Number(b.Pozycja ?? b.pozycja ?? 0));
-          const latestCreatedAtMs = arr.reduce(
+          const safeRows = Array.isArray(arr) ? arr : [];
+          safeRows.sort((a, b) => Number(a?.Pozycja ?? a?.pozycja ?? 0) - Number(b?.Pozycja ?? b?.pozycja ?? 0));
+  
+          const latestCreatedAtMs = safeRows.reduce(
             (maxTs, row) => Math.max(maxTs, getRowCreatedAtMs(row)),
             Number.NEGATIVE_INFINITY
           );
   
-          return [pdfName, arr, latestCreatedAtMs];
+          return [pdfName, safeRows, latestCreatedAtMs];
         })
         .sort((a, b) => {
           if (b[2] !== a[2]) return b[2] - a[2];
-          return String(a[0]).localeCompare(String(b[0]), "pl");
+          return String(a[0] ?? "").localeCompare(String(b[0] ?? ""), "pl");
         });
   
       const pdfMap = new Map();
@@ -439,15 +444,17 @@ export default function Home() {
     });
   
     groupedEntries.sort((a, b) => {
-      const latestA = a[1].latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
-      const latestB = b[1].latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
+      const latestA = a?.[1]?.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
+      const latestB = b?.[1]?.latestCreatedAtMs ?? Number.NEGATIVE_INFINITY;
   
       if (latestB !== latestA) return latestB - latestA;
-      return String(a[0]).localeCompare(String(b[0]), "pl");
+      return String(a?.[0] ?? "").localeCompare(String(b?.[0] ?? ""), "pl");
     });
   
     return groupedEntries;
   }, [items]);
+
+
 
 
   function handleNumericChange(field, raw) {
